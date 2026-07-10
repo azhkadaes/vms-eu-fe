@@ -44,6 +44,7 @@ interface BookingRecord {
   pin: string;
   status: BookingStatus;
   pejabat: string;
+  ruangan?: string;
   tanggal: string;
   waktu: string;
   keperluan: string;
@@ -116,6 +117,7 @@ function buildBookingFromPin(pin: string): BookingRecord {
     pin,
     status: statusMap[last],
     pejabat: "Deputi Bidang Perencanaan dan Pertanahan",
+    ruangan: ROOM_OPTIONS[0],
     tanggal: "2025-08-15",
     waktu: "10:00 - 11:00",
     keperluan: "Koordinasi Investasi",
@@ -154,6 +156,7 @@ function mockLookup(pin: string): BookingLookupResult {
 
 interface FormData {
   pejabat: string;
+  ruangan: string;
   tanggal: string;
   waktuMulai: string;
   waktuSelesai: string;
@@ -186,6 +189,8 @@ const translations = {
     fillVisitInfo: "Isi informasi kunjungan Anda ke Otorita IKN",
     selectOfficer: "Pejabat yang Dikunjungi",
     officerPlaceholder: "Pilih pejabat tujuan",
+    selectRoom: "Ruangan yang Dipesan",
+    roomPlaceholder: "Pilih ruangan",
     visitDate: "Tanggal Kunjungan",
     visitTime: "Waktu Kunjungan",
     timePlaceholder: "Pilih waktu kunjungan",
@@ -221,6 +226,7 @@ const translations = {
     reviewData: "Periksa kembali data kunjungan Anda sebelum mengirim",
     visitDetailsSection: "Detail Kunjungan",
     officerLabel: "Pejabat yang Dikunjungi",
+    roomLabel: "Ruangan yang Dipesan",
     dateLabel: "Tanggal Kunjungan",
     timeLabel: "Waktu Kunjungan",
     purposeLabel: "Keperluan",
@@ -337,6 +343,8 @@ const translations = {
     fillVisitInfo: "Fill in your visit information to IKN Authority",
     selectOfficer: "Officer to Visit",
     officerPlaceholder: "Select target officer",
+    selectRoom: "Room to Book",
+    roomPlaceholder: "Select room",
     visitDate: "Visit Date",
     visitTime: "Visit Time",
     timePlaceholder: "Select visit time",
@@ -372,6 +380,7 @@ const translations = {
     reviewData: "Review your booking data before submitting",
     visitDetailsSection: "Visit Details",
     officerLabel: "Officer to Visit",
+    roomLabel: "Room to Book",
     dateLabel: "Visit Date",
     timeLabel: "Visit Time",
     purposeLabel: "Purpose",
@@ -525,6 +534,8 @@ const PEJABAT_OPTIONS = [
   "Kepala Bagian Protokol",
   "Kepala Bagian Rumah Tangga",
 ];
+
+const ROOM_OPTIONS = ["Kemenko Tower 2", "War Room", "Visitor Room"];
 
 const KEPERLUAN_OPTIONS = [
   "Kunjungan Resmi Pemerintah",
@@ -946,6 +957,7 @@ function CekPinScreen({
                         ["PIN", result.record.pin],
                         ["Nama", result.record.nama],
                         ["Pejabat", result.record.pejabat],
+                        ["Ruangan", result.record.ruangan || "-"],
                         ["Tanggal", formatDate(result.record.tanggal)],
                         ["Waktu", `${result.record.waktu} WIB`],
                         ["Keperluan", result.record.keperluan],
@@ -1106,6 +1118,7 @@ function Step1Screen({
     waktuMulaiIdx >= 0 ? TIME_SLOTS.slice(waktuMulaiIdx + 1) : TIME_SLOTS;
   const isValid =
     data.pejabat &&
+    data.ruangan &&
     data.tanggal &&
     isTimeRangeValid &&
     data.keperluan &&
@@ -1151,6 +1164,19 @@ function Step1Screen({
                 options={PEJABAT_OPTIONS}
                 placeholder={t("selectOfficial")}
                 icon={<User size={15} />}
+              />
+            </FieldWrap>
+          </div>
+
+          <div className="md:col-span-2">
+            <FieldWrap>
+              <Label required>{t("roomLabel")}</Label>
+              <SelectField
+                value={data.ruangan}
+                onChange={(v) => setData({ ruangan: v })}
+                options={ROOM_OPTIONS}
+                placeholder={t("roomPlaceholder")}
+                icon={<Building2 size={15} />}
               />
             </FieldWrap>
           </div>
@@ -1523,6 +1549,7 @@ function ConfirmScreen({
         <div className="max-w-2xl mx-auto">
           <ConfirmSection title={t("visitDetailTitle")}>
             <ConfirmRow label={t("officialLabel")} value={data.pejabat} />
+            <ConfirmRow label={t("roomLabel")} value={data.ruangan} />
             <ConfirmRow
               label={t("dateLabel")}
               value={formatDate(data.tanggal)}
@@ -1688,6 +1715,7 @@ function SuccessScreen({
 // ─── Root App ─────────────────────────────────────────────────────────────────
 const EMPTY: FormData = {
   pejabat: "",
+  ruangan: "",
   tanggal: "",
   waktuMulai: "",
   waktuSelesai: "",
@@ -1789,6 +1817,7 @@ export default function App() {
             pin: newPin,
             status: "menunggu",
             pejabat: form.pejabat,
+            ruangan: form.ruangan,
             tanggal: form.tanggal,
             waktu: formatVisitTimeRange(form.waktuMulai, form.waktuSelesai),
             keperluan:

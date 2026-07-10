@@ -616,6 +616,7 @@ function SelectField({
       <select
         value={value}
         disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
         className={`w-full bg-white/75 border border-[#2e7465] rounded-[8px] appearance-none outline-none focus:border-[#3f9e89] focus:ring-2 focus:ring-[#2e7465]/20 transition-all disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "py-2.5 pr-9 text-[13px] md:text-[14px]" : "py-3 pr-10 text-[14px]"} ${icon ? (compact ? "pl-8" : "pl-9") : "pl-3"} ${value ? "text-[#1a3d34]" : "text-gray-400"}`}
       >
         <option value="" disabled>
@@ -838,8 +839,9 @@ function CekPinScreen({
   const [searched, setSearched] = useState(false);
 
   const handleSearch = () => {
-    if (pin.replace(/\D/g, "").length < 6) return;
-    const found = mockLookup(pin);
+    const normalizedPin = pin.replace(/\D/g, "");
+    if (normalizedPin.length < 6) return;
+    const found = mockLookup(normalizedPin);
     setResult(found);
     setSearched(true);
   };
@@ -955,7 +957,6 @@ function CekPinScreen({
                         >
                           <span className="text-white/45 text-xs md:text-sm shrink-0">
                             {label}
-                            ["Instansi", result.record.instansi],
                           </span>
                           <span className="text-white text-xs md:text-sm font-medium text-right">
                             {val}
@@ -1300,6 +1301,7 @@ function Step2Screen({
   language?: Language;
 }) {
   const t = (key: TranslationKey): string => translations[language][key] || "";
+  const visitorCount = Number.parseInt(data.jumlahPengunjung, 10);
 
   const isValid =
     data.namaLengkap &&
@@ -1307,7 +1309,8 @@ function Step2Screen({
     data.asalInstansi &&
     data.nomorTelepon &&
     data.email &&
-    data.jumlahPengunjung;
+    Number.isInteger(visitorCount) &&
+    visitorCount >= 1;
 
   return (
     <div className="relative min-h-dvh w-full overflow-hidden flex flex-col">

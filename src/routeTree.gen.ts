@@ -13,6 +13,10 @@ import { Route as UnauthorizedRouteImport } from './routes/unauthorized'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppTodayRouteImport } from './routes/_app.today'
+import { Route as AppRolesRouteImport } from './routes/_app.roles'
+import { Route as AppLogsRouteImport } from './routes/_app.logs'
+import { Route as AppIntegrationRouteImport } from './routes/_app.integration'
+import { Route as AppEmployeesRouteImport } from './routes/_app.employees'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppCheckOutRouteImport } from './routes/_app.check-out'
 import { Route as AppCheckInRouteImport } from './routes/_app.check-in'
@@ -36,6 +40,26 @@ const IndexRoute = IndexRouteImport.update({
 const AppTodayRoute = AppTodayRouteImport.update({
   id: '/today',
   path: '/today',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRolesRoute = AppRolesRouteImport.update({
+  id: '/roles',
+  path: '/roles',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLogsRoute = AppLogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppIntegrationRoute = AppIntegrationRouteImport.update({
+  id: '/integration',
+  path: '/integration',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppEmployeesRoute = AppEmployeesRouteImport.update({
+  id: '/employees',
+  path: '/employees',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
@@ -72,6 +96,10 @@ export interface FileRoutesByFullPath {
   '/check-in': typeof AppCheckInRoute
   '/check-out': typeof AppCheckOutRoute
   '/dashboard': typeof AppDashboardRoute
+  '/employees': typeof AppEmployeesRoute
+  '/integration': typeof AppIntegrationRoute
+  '/logs': typeof AppLogsRoute
+  '/roles': typeof AppRolesRoute
   '/today': typeof AppTodayRoute
 }
 export interface FileRoutesByTo {
@@ -82,6 +110,10 @@ export interface FileRoutesByTo {
   '/check-in': typeof AppCheckInRoute
   '/check-out': typeof AppCheckOutRoute
   '/dashboard': typeof AppDashboardRoute
+  '/employees': typeof AppEmployeesRoute
+  '/integration': typeof AppIntegrationRoute
+  '/logs': typeof AppLogsRoute
+  '/roles': typeof AppRolesRoute
   '/today': typeof AppTodayRoute
 }
 export interface FileRoutesById {
@@ -94,6 +126,10 @@ export interface FileRoutesById {
   '/_app/check-in': typeof AppCheckInRoute
   '/_app/check-out': typeof AppCheckOutRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/employees': typeof AppEmployeesRoute
+  '/_app/integration': typeof AppIntegrationRoute
+  '/_app/logs': typeof AppLogsRoute
+  '/_app/roles': typeof AppRolesRoute
   '/_app/today': typeof AppTodayRoute
 }
 export interface FileRouteTypes {
@@ -106,6 +142,10 @@ export interface FileRouteTypes {
     | '/check-in'
     | '/check-out'
     | '/dashboard'
+    | '/employees'
+    | '/integration'
+    | '/logs'
+    | '/roles'
     | '/today'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -116,6 +156,10 @@ export interface FileRouteTypes {
     | '/check-in'
     | '/check-out'
     | '/dashboard'
+    | '/employees'
+    | '/integration'
+    | '/logs'
+    | '/roles'
     | '/today'
   id:
     | '__root__'
@@ -127,6 +171,10 @@ export interface FileRouteTypes {
     | '/_app/check-in'
     | '/_app/check-out'
     | '/_app/dashboard'
+    | '/_app/employees'
+    | '/_app/integration'
+    | '/_app/logs'
+    | '/_app/roles'
     | '/_app/today'
   fileRoutesById: FileRoutesById
 }
@@ -164,6 +212,34 @@ declare module '@tanstack/react-router' {
       path: '/today'
       fullPath: '/today'
       preLoaderRoute: typeof AppTodayRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/roles': {
+      id: '/_app/roles'
+      path: '/roles'
+      fullPath: '/roles'
+      preLoaderRoute: typeof AppRolesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/logs': {
+      id: '/_app/logs'
+      path: '/logs'
+      fullPath: '/logs'
+      preLoaderRoute: typeof AppLogsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/integration': {
+      id: '/_app/integration'
+      path: '/integration'
+      fullPath: '/integration'
+      preLoaderRoute: typeof AppIntegrationRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/employees': {
+      id: '/_app/employees'
+      path: '/employees'
+      fullPath: '/employees'
+      preLoaderRoute: typeof AppEmployeesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/dashboard': {
@@ -210,6 +286,10 @@ interface AppRouteChildren {
   AppCheckInRoute: typeof AppCheckInRoute
   AppCheckOutRoute: typeof AppCheckOutRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppEmployeesRoute: typeof AppEmployeesRoute
+  AppIntegrationRoute: typeof AppIntegrationRoute
+  AppLogsRoute: typeof AppLogsRoute
+  AppRolesRoute: typeof AppRolesRoute
   AppTodayRoute: typeof AppTodayRoute
 }
 
@@ -219,6 +299,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppCheckInRoute: AppCheckInRoute,
   AppCheckOutRoute: AppCheckOutRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppEmployeesRoute: AppEmployeesRoute,
+  AppIntegrationRoute: AppIntegrationRoute,
+  AppLogsRoute: AppLogsRoute,
+  AppRolesRoute: AppRolesRoute,
   AppTodayRoute: AppTodayRoute,
 }
 

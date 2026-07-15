@@ -11,6 +11,9 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { RepositoriesProvider } from "@/app/RepositoriesContext";
+import { SessionProvider } from "@/app/SessionContext";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -48,7 +51,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
           This page didn't load
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+          Something went wrong on our end.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
@@ -77,21 +80,30 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "NUSANTARA — Visitor Management Backoffice" },
+      {
+        name: "description",
+        content:
+          "Backoffice for the NUSANTARA Visitor Management System — manage bookings, check-ins, employees, and roles.",
+      },
+      { name: "author", content: "NUSANTARA" },
+      { property: "og:title", content: "NUSANTARA — Visitor Management Backoffice" },
+      {
+        property: "og:description",
+        content: "Backoffice for the NUSANTARA Visitor Management System.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: appCss,
+        href: "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap",
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
   shellComponent: RootShell,
@@ -119,8 +131,12 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <RepositoriesProvider>
+        <SessionProvider>
+          <Outlet />
+          <Toaster position="top-right" richColors />
+        </SessionProvider>
+      </RepositoriesProvider>
     </QueryClientProvider>
   );
 }

@@ -14,6 +14,9 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppTodayRouteImport } from './routes/_app.today'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
+import { Route as AppCheckOutRouteImport } from './routes/_app.check-out'
+import { Route as AppCheckInRouteImport } from './routes/_app.check-in'
+import { Route as AppBookingRouteImport } from './routes/_app.booking'
 import { Route as AppAnalyticsRouteImport } from './routes/_app.analytics'
 
 const UnauthorizedRoute = UnauthorizedRouteImport.update({
@@ -40,6 +43,21 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCheckOutRoute = AppCheckOutRouteImport.update({
+  id: '/check-out',
+  path: '/check-out',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCheckInRoute = AppCheckInRouteImport.update({
+  id: '/check-in',
+  path: '/check-in',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBookingRoute = AppBookingRouteImport.update({
+  id: '/booking',
+  path: '/booking',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -50,6 +68,9 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/unauthorized': typeof UnauthorizedRoute
   '/analytics': typeof AppAnalyticsRoute
+  '/booking': typeof AppBookingRoute
+  '/check-in': typeof AppCheckInRoute
+  '/check-out': typeof AppCheckOutRoute
   '/dashboard': typeof AppDashboardRoute
   '/today': typeof AppTodayRoute
 }
@@ -57,6 +78,9 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/unauthorized': typeof UnauthorizedRoute
   '/analytics': typeof AppAnalyticsRoute
+  '/booking': typeof AppBookingRoute
+  '/check-in': typeof AppCheckInRoute
+  '/check-out': typeof AppCheckOutRoute
   '/dashboard': typeof AppDashboardRoute
   '/today': typeof AppTodayRoute
 }
@@ -66,20 +90,42 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/unauthorized': typeof UnauthorizedRoute
   '/_app/analytics': typeof AppAnalyticsRoute
+  '/_app/booking': typeof AppBookingRoute
+  '/_app/check-in': typeof AppCheckInRoute
+  '/_app/check-out': typeof AppCheckOutRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/today': typeof AppTodayRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/unauthorized' | '/analytics' | '/dashboard' | '/today'
+  fullPaths:
+    | '/'
+    | '/unauthorized'
+    | '/analytics'
+    | '/booking'
+    | '/check-in'
+    | '/check-out'
+    | '/dashboard'
+    | '/today'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/unauthorized' | '/analytics' | '/dashboard' | '/today'
+  to:
+    | '/'
+    | '/unauthorized'
+    | '/analytics'
+    | '/booking'
+    | '/check-in'
+    | '/check-out'
+    | '/dashboard'
+    | '/today'
   id:
     | '__root__'
     | '/'
     | '/_app'
     | '/unauthorized'
     | '/_app/analytics'
+    | '/_app/booking'
+    | '/_app/check-in'
+    | '/_app/check-out'
     | '/_app/dashboard'
     | '/_app/today'
   fileRoutesById: FileRoutesById
@@ -127,6 +173,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/check-out': {
+      id: '/_app/check-out'
+      path: '/check-out'
+      fullPath: '/check-out'
+      preLoaderRoute: typeof AppCheckOutRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/check-in': {
+      id: '/_app/check-in'
+      path: '/check-in'
+      fullPath: '/check-in'
+      preLoaderRoute: typeof AppCheckInRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/booking': {
+      id: '/_app/booking'
+      path: '/booking'
+      fullPath: '/booking'
+      preLoaderRoute: typeof AppBookingRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/analytics': {
       id: '/_app/analytics'
       path: '/analytics'
@@ -139,12 +206,18 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAnalyticsRoute: typeof AppAnalyticsRoute
+  AppBookingRoute: typeof AppBookingRoute
+  AppCheckInRoute: typeof AppCheckInRoute
+  AppCheckOutRoute: typeof AppCheckOutRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppTodayRoute: typeof AppTodayRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppAnalyticsRoute: AppAnalyticsRoute,
+  AppBookingRoute: AppBookingRoute,
+  AppCheckInRoute: AppCheckInRoute,
+  AppCheckOutRoute: AppCheckOutRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppTodayRoute: AppTodayRoute,
 }

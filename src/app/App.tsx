@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ChevronRight,
@@ -14,13 +14,31 @@ import {
   Mail,
   CreditCard,
   FileText,
-  X,
   Search,
   AlertCircle,
   Hourglass,
   XCircle,
   Users,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
+import {
+  fetchOfficers,
+  fetchRooms,
+  mapOfficersToOptions,
+  mapRoomsToOptions,
+  type OfficerResponse,
+  type RoomResponse,
+} from "../services/masterDataService";
+import {
+  createBooking,
+  fetchBookingByPin,
+  isBookingExpired,
+  type ReqCreateBooking,
+  type ResBookingCreated,
+  type ResBookingLookup,
+} from "../services/bookingService";
+import { ApiError } from "../services/api";
 
 const imgBg = new URL(
   "../imports/IPhone13141/bb7b728a1a6e3f913073a407a73a558eb5867bcf.png",
@@ -57,101 +75,6 @@ interface BookingRecord {
 function formatVisitTimeRange(start: string, end: string) {
   if (!start || !end) return "-";
   return `${start} - ${end}`;
-}
-
-const BOOKING_EXPIRY_MONTHS = 3;
-const BOOKING_STORAGE_KEY = "vms-bookings";
-
-function addMonths(date: Date, months: number) {
-  const next = new Date(date);
-  next.setMonth(next.getMonth() + months);
-  return next;
-}
-
-function isExpired(expiresAt: string) {
-  return new Date(expiresAt).getTime() <= Date.now();
-}
-
-function readBookings(): Record<string, BookingRecord> {
-  if (typeof window === "undefined") return {};
-
-  try {
-    const raw = window.localStorage.getItem(BOOKING_STORAGE_KEY);
-    if (!raw) return {};
-
-    const parsed = JSON.parse(raw) as Record<string, BookingRecord>;
-    return typeof parsed === "object" && parsed ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveBookings(bookings: Record<string, BookingRecord>) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(BOOKING_STORAGE_KEY, JSON.stringify(bookings));
-}
-
-function storeBooking(record: BookingRecord) {
-  const bookings = readBookings();
-  bookings[record.pin] = record;
-  saveBookings(bookings);
-}
-
-function buildBookingFromPin(pin: string): BookingRecord {
-  const last = Number.parseInt(pin.slice(-1), 10);
-  const statusMap: Record<number, BookingStatus> = {
-    0: "menunggu",
-    1: "menunggu",
-    2: "menunggu",
-    3: "menunggu",
-    4: "disetujui",
-    5: "disetujui",
-    6: "disetujui",
-    7: "ditolak",
-    8: "ditolak",
-    9: "selesai",
-  };
-  const issuedAt = new Date().toISOString();
-
-  return {
-    pin,
-    status: statusMap[last],
-    pejabat: "Deputi Bidang Perencanaan dan Pertanahan",
-    ruangan: ROOM_OPTIONS[0],
-    tanggal: "2025-08-15",
-    waktu: "10:00 - 11:00",
-    keperluan: "Koordinasi Investasi",
-    nama: "Budi Santoso",
-    issuedAt,
-    expiresAt: addMonths(
-      new Date(issuedAt),
-      BOOKING_EXPIRY_MONTHS,
-    ).toISOString(),
-  };
-}
-
-// ─── Mock booking database ────────────────────────────────────────────────────
-// Demo PINs are persisted for 3 months, then removed from the local store.
-function mockLookup(pin: string): BookingLookupResult {
-  if (pin.length !== 6) return { kind: "not-found" };
-
-  const bookings = readBookings();
-  const stored = bookings[pin];
-
-  if (stored) {
-    if (isExpired(stored.expiresAt)) {
-      delete bookings[pin];
-      saveBookings(bookings);
-      return { kind: "expired", record: stored };
-    }
-
-    return { kind: "found", record: stored };
-  }
-
-  const record = buildBookingFromPin(pin);
-  bookings[pin] = record;
-  saveBookings(bookings);
-  return { kind: "found", record };
 }
 
 interface FormData {
@@ -486,7 +409,7 @@ const translations = {
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const PEJABAT_OPTIONS = [
+const FALLBACK_PEJABAT_OPTIONS: string[] = [
   "Kepala Otorita Ibu Kota Nusantara",
   "Sekretaris",
   "Kepala Unit Kerja Hukum dan Kepatuhan",
@@ -535,7 +458,11 @@ const PEJABAT_OPTIONS = [
   "Kepala Bagian Rumah Tangga",
 ];
 
-const ROOM_OPTIONS = ["Kemenko Tower 2", "War Room", "Visitor Room"];
+const FALLBACK_ROOM_OPTIONS: string[] = [
+  "Kemenko Tower 2",
+  "War Room",
+  "Visitor Room",
+];
 
 const KEPERLUAN_OPTIONS = [
   "Kunjungan Resmi Pemerintah",
@@ -839,28 +766,96 @@ function CekPinScreen({
   onBack,
   sessionPin,
   language = "id",
+  sessionRuangan,
 }: {
   onBack: () => void;
   sessionPin?: string;
   language?: Language;
+  sessionRuangan?: string;
 }) {
   const t = (key: TranslationKey): string => translations[language][key] || "";
   const [pin, setPin] = useState(sessionPin || "");
   const [result, setResult] = useState<BookingLookupResult | null>(null);
   const [searched, setSearched] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     const normalizedPin = pin.replace(/\D/g, "");
-    if (normalizedPin.length < 6) return;
-    const found = mockLookup(normalizedPin);
-    setResult(found);
-    setSearched(true);
+    if (normalizedPin.length < 6 || isSearching) return;
+
+    setIsSearching(true);
+    setSearchError(null);
+    try {
+      const record: ResBookingLookup = await fetchBookingByPin(normalizedPin);
+      const expired = isBookingExpired(record.expiresAt);
+      if (expired) {
+        setResult({ kind: "expired", record });
+      } else {
+        setResult({ kind: "found", record });
+      }
+      setSearched(true);
+    } catch (err) {
+      let notFound = false;
+      let message = "Gagal mencari status booking.";
+      if (err instanceof ApiError) {
+        message = err.message;
+        if (err.statusCode === 404 || err.errorCode === "NOT_FOUND") {
+          notFound = true;
+        }
+        if (err.statusCode === 410 || err.errorCode === "GONE") {
+          toast.warning("PIN sudah kedaluwarsa");
+          setResult({
+            kind: "expired",
+            record: {
+              pin: normalizedPin,
+              status: "selesai",
+              pejabat: "-",
+              tanggal: "-",
+              waktu: "-",
+              keperluan: "-",
+              nama: "-",
+              issuedAt: new Date().toISOString(),
+              expiresAt: new Date().toISOString(),
+            },
+          });
+          setSearched(true);
+          setIsSearching(false);
+          setSearchError(null);
+          return;
+        }
+        if (err.statusCode === 400) {
+          notFound = true;
+        }
+      } else if (err instanceof Error) {
+        message = err.message || message;
+      }
+      if (notFound) {
+        setResult({ kind: "not-found" });
+        setSearched(true);
+        setSearchError(null);
+      } else {
+        setSearchError(message);
+        setResult(null);
+        toast.error("Gagal cek status", { description: message });
+      }
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleReset = () => {
     setPin("");
     setResult(null);
     setSearched(false);
+    setSearchError(null);
+  };
+
+  const getRuanganDisplay = (rec: ResBookingLookup): string => {
+    const lookup = rec as unknown as { ruangan?: string };
+    if (lookup.ruangan) return lookup.ruangan;
+    if (sessionRuangan && sessionPin === rec.pin) return sessionRuangan;
+    return "-";
   };
 
   return (
@@ -905,18 +900,34 @@ function CekPinScreen({
             </p>
             <PinInput value={pin} onChange={setPin} />
 
+            {searchError && (
+              <div className="flex items-start gap-2 text-red-300/90 text-xs mb-4 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
+                <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                <span>{searchError}</span>
+              </div>
+            )}
+
             <button
-              onClick={handleSearch}
-              disabled={pin.replace(/\D/g, "").length < 6}
-              className="w-full mt-5 bg-[#2e7465] disabled:bg-[#2e7465]/35 text-white font-semibold text-sm md:text-base rounded-[8px] py-3 md:py-4 flex items-center justify-center gap-2 transition-all active:scale-[0.98] hover:enabled:bg-[#3f9e89]"
+              onClick={() => void handleSearch()}
+              disabled={pin.replace(/\D/g, "").length < 6 || isSearching}
+              className="w-full mt-5 bg-[#2e7465] disabled:bg-[#2e7465]/35 text-white font-semibold text-sm md:text-base rounded-[8px] py-3 md:py-4 flex items-center justify-center gap-2 transition-all active:scale-[0.98] hover:enabled:bg-[#3f9e89] disabled:cursor-not-allowed"
             >
-              <Search size={16} /> {t("checkStatusButton")}
+              {isSearching ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" /> Mencari...
+                </>
+              ) : (
+                <>
+                  <Search size={16} /> {t("checkStatusButton")}
+                </>
+              )}
             </button>
 
-            {searched && (
+            {(searched || searchError) && (
               <button
                 onClick={handleReset}
-                className="w-full mt-2 text-white/50 text-xs md:text-sm py-2 underline underline-offset-2 hover:text-white/70"
+                disabled={isSearching}
+                className="w-full mt-2 text-white/50 text-xs md:text-sm py-2 underline underline-offset-2 hover:text-white/70 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t("searchAnotherPin")}
               </button>
@@ -957,7 +968,7 @@ function CekPinScreen({
                         ["PIN", result.record.pin],
                         ["Nama", result.record.nama],
                         ["Pejabat", result.record.pejabat],
-                        ["Ruangan", result.record.ruangan || "-"],
+                        ["Ruangan", getRuanganDisplay(result.record)],
                         ["Tanggal", formatDate(result.record.tanggal)],
                         ["Waktu", `${result.record.waktu} WIB`],
                         ["Keperluan", result.record.keperluan],
@@ -1097,12 +1108,20 @@ function Step1Screen({
   onNext,
   onBack,
   language = "id",
+  pejabatOptions,
+  roomOptions,
+  loadingMasterData,
+  masterDataError,
 }: {
   data: FormData;
   setData: (d: Partial<FormData>) => void;
   onNext: () => void;
   onBack: () => void;
   language?: Language;
+  pejabatOptions: string[];
+  roomOptions: string[];
+  loadingMasterData?: boolean;
+  masterDataError?: string | null;
 }) {
   const t = (key: TranslationKey): string => translations[language][key] || "";
 
@@ -1123,6 +1142,9 @@ function Step1Screen({
     isTimeRangeValid &&
     data.keperluan &&
     (!isOther || data.keperluanLain.trim());
+
+  const showMasterDataError =
+    !loadingMasterData && masterDataError && (pejabatOptions.length === 0 || roomOptions.length === 0);
 
   return (
     <div className="relative min-h-dvh w-full overflow-hidden flex flex-col">
@@ -1150,6 +1172,18 @@ function Step1Screen({
         <p className="text-white/60 text-xs md:text-sm lg:text-base mt-1">
           {t("step1Subtitle")}
         </p>
+        {loadingMasterData && (
+          <div className="flex items-center gap-2 text-white/60 text-xs mt-3">
+            <Loader2 size={14} className="animate-spin" />
+            Memuat data master...
+          </div>
+        )}
+        {showMasterDataError && (
+          <div className="flex items-start gap-2 text-amber-300/90 text-xs mt-3 bg-amber-500/10 border border-amber-500/30 rounded-md px-3 py-2">
+            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+            <span>{masterDataError} — Menggunakan data fallback.</span>
+          </div>
+        )}
       </div>
 
       {/* Form */}
@@ -1161,9 +1195,10 @@ function Step1Screen({
               <SelectField
                 value={data.pejabat}
                 onChange={(v) => setData({ pejabat: v })}
-                options={PEJABAT_OPTIONS}
+                options={pejabatOptions}
                 placeholder={t("selectOfficial")}
                 icon={<User size={15} />}
+                disabled={loadingMasterData}
               />
             </FieldWrap>
           </div>
@@ -1174,9 +1209,10 @@ function Step1Screen({
               <SelectField
                 value={data.ruangan}
                 onChange={(v) => setData({ ruangan: v })}
-                options={ROOM_OPTIONS}
+                options={roomOptions}
                 placeholder={t("roomPlaceholder")}
                 icon={<Building2 size={15} />}
+                disabled={loadingMasterData}
               />
             </FieldWrap>
           </div>
@@ -1496,11 +1532,15 @@ function ConfirmScreen({
   onBack,
   onSubmit,
   language = "id",
+  isSubmitting,
+  submitError,
 }: {
   data: FormData;
   onBack: () => void;
   onSubmit: () => void;
   language?: Language;
+  isSubmitting?: boolean;
+  submitError?: string | null;
 }) {
   const t = (key: TranslationKey): string => translations[language][key] || "";
 
@@ -1527,7 +1567,8 @@ function ConfirmScreen({
       <div className="relative z-10 pt-8 md:pt-12 lg:pt-16 pb-4 md:pb-6 px-6 md:px-8 lg:px-12">
         <button
           onClick={onBack}
-          className="flex items-center gap-1 text-white/70 text-xs md:text-sm mb-5 -ml-1 hover:text-white/90"
+          disabled={isSubmitting}
+          className="flex items-center gap-1 text-white/70 text-xs md:text-sm mb-5 -ml-1 hover:text-white/90 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <ChevronLeft size={16} /> {t("back")}
         </button>
@@ -1542,6 +1583,12 @@ function ConfirmScreen({
         <p className="text-white/60 text-xs md:text-sm lg:text-base mt-1">
           {t("confirmSubtitle")}
         </p>
+        {submitError && (
+          <div className="flex items-start gap-2 text-red-300/90 text-xs mt-3 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
+            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+            <span>{submitError}</span>
+          </div>
+        )}
       </div>
 
       {/* Summary */}
@@ -1589,13 +1636,23 @@ function ConfirmScreen({
           <div className="flex flex-col md:flex-row gap-3">
             <button
               onClick={onSubmit}
-              className="flex-1 bg-[#2e7465] text-white font-semibold text-sm md:text-base lg:text-lg rounded-[8px] py-3 md:py-4 lg:py-5 flex items-center justify-center gap-2 transition-all active:scale-[0.98] hover:bg-[#3f9e89] shadow-lg shadow-[#2e7465]/30"
+              disabled={isSubmitting}
+              className="flex-1 bg-[#2e7465] disabled:bg-[#2e7465]/50 text-white font-semibold text-sm md:text-base lg:text-lg rounded-[8px] py-3 md:py-4 lg:py-5 flex items-center justify-center gap-2 transition-all active:scale-[0.98] hover:enabled:bg-[#3f9e89] shadow-lg shadow-[#2e7465]/30 disabled:cursor-not-allowed"
             >
-              <CheckCircle2 size={17} /> {t("submitBooking")}
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={17} className="animate-spin" /> Mengirim...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={17} /> {t("submitBooking")}
+                </>
+              )}
             </button>
             <button
               onClick={onBack}
-              className="flex-1 border border-white/30 text-white/80 font-medium text-sm md:text-base rounded-[8px] py-3 md:py-4 lg:py-5 transition-all active:scale-[0.98] hover:border-white/50"
+              disabled={isSubmitting}
+              className="flex-1 border border-white/30 text-white/80 font-medium text-sm md:text-base rounded-[8px] py-3 md:py-4 lg:py-5 transition-all active:scale-[0.98] hover:border-white/50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {t("editData")}
             </button>
@@ -1741,11 +1798,146 @@ export default function App() {
     return (localStorage.getItem("vms-language") as Language) || "id";
   });
 
+  const [officers, setOfficers] = useState<OfficerResponse[]>([]);
+  const [rooms, setRooms] = useState<RoomResponse[]>([]);
+  const [loadingMasterData, setLoadingMasterData] = useState(false);
+  const [masterDataError, setMasterDataError] = useState<string | null>(null);
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
+  const [submitBookingError, setSubmitBookingError] = useState<string | null>(null);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("vms-language", language);
     }
   }, [language]);
+
+  const loadMasterData = useCallback(async () => {
+    if (officers.length > 0 && rooms.length > 0) {
+      return;
+    }
+    setLoadingMasterData(true);
+    setMasterDataError(null);
+    try {
+      const [officerResult, roomResult] = await Promise.allSettled([
+        fetchOfficers(),
+        fetchRooms(),
+      ]);
+
+      if (officerResult.status === "fulfilled") {
+        setOfficers(officerResult.value);
+      } else {
+        setOfficers([]);
+      }
+
+      if (roomResult.status === "fulfilled") {
+        setRooms(roomResult.value);
+      } else {
+        setRooms([]);
+      }
+
+      if (
+        officerResult.status === "rejected" ||
+        roomResult.status === "rejected"
+      ) {
+        const errors: string[] = [];
+        if (officerResult.status === "rejected") {
+          const err = officerResult.reason as ApiError | Error;
+          errors.push(
+            `Pejabat: ${err instanceof ApiError ? err.message : err.message}`,
+          );
+        }
+        if (roomResult.status === "rejected") {
+          const err = roomResult.reason as ApiError | Error;
+          errors.push(
+            `Ruangan: ${err instanceof ApiError ? err.message : err.message}`,
+          );
+        }
+        setMasterDataError(errors.join(". "));
+      }
+    } finally {
+      setLoadingMasterData(false);
+    }
+  }, [officers.length, rooms.length]);
+
+  useEffect(() => {
+    void loadMasterData();
+  }, [loadMasterData]);
+
+  const handleSubmitBooking = useCallback(async () => {
+    setIsSubmittingBooking(true);
+    setSubmitBookingError(null);
+    try {
+      const jumlahPengunjungInt = Number.parseInt(form.jumlahPengunjung, 10);
+      const formatTime = (t: string): string => {
+        if (!t) return t;
+        const m = t.match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
+        return m ? `${m[1]}:${m[2]}` : t;
+      };
+      const payload: ReqCreateBooking = {
+        pejabat: form.pejabat,
+        tanggal: form.tanggal,
+        waktuMulai: formatTime(form.waktuMulai),
+        waktuSelesai: formatTime(form.waktuSelesai),
+        keperluan:
+          form.keperluan === "Lainnya" && form.keperluanLain.trim()
+            ? form.keperluanLain.trim()
+            : form.keperluan,
+        keperluanLain:
+          form.keperluan === "Lainnya" ? form.keperluanLain.trim() : "",
+        catatan: form.catatan || undefined,
+        namaLengkap: form.namaLengkap,
+        nomorIdentitas: form.nomorIdentitas,
+        asalInstansi: form.asalInstansi,
+        nomorTelepon: form.nomorTelepon,
+        email: form.email,
+        jumlahPengunjung: Number.isFinite(jumlahPengunjungInt)
+          ? jumlahPengunjungInt
+          : 1,
+      };
+
+      const result: ResBookingCreated = await createBooking(payload);
+      if (!result?.pin) {
+        throw new Error("PIN tidak diterima dari server.");
+      }
+
+      setSessionPin(result.pin);
+      setSubmitBookingError(null);
+      setSubmitted(true);
+
+      toast.success("Permohonan kunjungan berhasil dikirim!", {
+        description: `PIN booking Anda: ${result.pin}`,
+      });
+    } catch (err) {
+      let message = "Gagal mengirim permohonan. Silakan coba lagi.";
+      if (err instanceof ApiError) {
+        message = err.message;
+        if (err.field) {
+          message = `${message} (Field: ${err.field})`;
+        }
+        if (err.statusCode === 422) {
+          message = `Validasi gagal: ${err.message}`;
+        }
+      } else if (err instanceof Error) {
+        message = err.message || message;
+      }
+      setSubmitBookingError(message);
+      toast.error("Gagal mengirim permohonan", {
+        description: message,
+      });
+    } finally {
+      setIsSubmittingBooking(false);
+    }
+  }, [form]);
+
+  const pejabatOptionsList: string[] =
+    officers.length > 0
+      ? mapOfficersToOptions(officers).map((o) => o.label)
+      : FALLBACK_PEJABAT_OPTIONS;
+
+  const roomOptionsList: string[] =
+    rooms.length > 0
+      ? mapRoomsToOptions(rooms).map((r) => r.label)
+      : FALLBACK_ROOM_OPTIONS;
 
   const t = (key: TranslationKey) => translations[language][key];
 
@@ -1776,6 +1968,10 @@ export default function App() {
         onNext={() => goTo("step2")}
         onBack={() => goTo("landing")}
         language={language}
+        pejabatOptions={pejabatOptionsList}
+        roomOptions={roomOptionsList}
+        loadingMasterData={loadingMasterData}
+        masterDataError={masterDataError}
       />
     ),
     step2: (
@@ -1792,6 +1988,7 @@ export default function App() {
         onBack={() => goTo(prevScreen === "cek-pin" ? "landing" : prevScreen)}
         sessionPin={sessionPin}
         language={language}
+        sessionRuangan={form.ruangan}
       />
     ),
     confirm: submitted ? (
@@ -1801,6 +1998,7 @@ export default function App() {
           setSubmitted(false);
           setForm(EMPTY);
           setSessionPin("");
+          setSubmitBookingError(null);
           goTo("landing");
         }}
         onCekPin={(p) => handleCekPin(p)}
@@ -1809,33 +2007,16 @@ export default function App() {
     ) : (
       <ConfirmScreen
         data={form}
-        onBack={() => goTo("step2")}
+        onBack={() => {
+          setSubmitBookingError(null);
+          goTo("step2");
+        }}
         onSubmit={() => {
-          const newPin = Math.floor(100000 + Math.random() * 900000).toString();
-          const issuedAt = new Date().toISOString();
-          storeBooking({
-            pin: newPin,
-            status: "menunggu",
-            pejabat: form.pejabat,
-            ruangan: form.ruangan,
-            tanggal: form.tanggal,
-            waktu: formatVisitTimeRange(form.waktuMulai, form.waktuSelesai),
-            keperluan:
-              form.keperluan === "Lainnya"
-                ? form.keperluanLain
-                : form.keperluan,
-            nama: form.namaLengkap,
-            catatan: form.catatan,
-            issuedAt,
-            expiresAt: addMonths(
-              new Date(issuedAt),
-              BOOKING_EXPIRY_MONTHS,
-            ).toISOString(),
-          });
-          setSessionPin(newPin);
-          setSubmitted(true);
+          void handleSubmitBooking();
         }}
         language={language}
+        isSubmitting={isSubmittingBooking}
+        submitError={submitBookingError}
       />
     ),
   };

@@ -1,5 +1,5 @@
-// Repository interfaces. Every method is async so the mock impl and a
-// future HTTP impl share the same signature.
+// Preview repository interfaces. A future HTTP adapter must validate and map
+// the approved API contract instead of assuming these mock shapes match it.
 
 import type {
   AuditLog,
@@ -70,8 +70,8 @@ export interface IntegrationRepository {
 
 export interface LogRepository {
   list(): Promise<AuditLog[]>;
-  exportCsv(email: string): Promise<{ csv: string; sentTo: string }>;
-  downloadReport(email: string): Promise<{ csv: string; sentTo: string }>;
+  exportCsv(): Promise<{ csv: string }>;
+  downloadReport(): Promise<{ csv: string }>;
 }
 
 export interface AnalyticsRepository {

@@ -45,12 +45,12 @@ export function isBookingVip(booking: Booking, officer: Officer | undefined): bo
   return Boolean(officer?.isVip);
 }
 
-/**
- * Scope a list of bookings for the current user:
- * - PA (has BOOKING_UPDATE but not manage-all): only their assigned officers
- * - Protocol Officer: sees all, editable only on VIP officer bookings
- * - Receptionist/others with BOOKING_VIEW: sees all
- */
+function hasRole(user: SessionUser, name: string): boolean {
+  return user.roles.some((role) => role.name === name);
+}
+
+// Preview-only scope adapter. The eventual API must return resolved, enforced
+// permissions and scope; a role name in the browser is not authorization.
 export function scopeBookings(
   user: SessionUser | null,
   bookings: Booking[],
@@ -59,35 +59,46 @@ export function scopeBookings(
   if (!user) return [];
   if (!hasPermission(user, FEATURES.BOOKING_VIEW)) return [];
 
-  const isPA = user.roles.some((r) => r.name === "Personal Assistant");
-  if (isPA && user.assignedOfficerIds.length > 0) {
-    const allowed = new Set(user.assignedOfficerIds);
-    return bookings.filter((b) => allowed.has(b.officerId));
+  if (hasRole(user, "Super Admin") || hasRole(user, "Receptionist") || hasRole(user, "Protocol Officer")) {
+    return bookings;
   }
-  // Everyone else with view sees all; individual actions are gated separately.
-  void officers;
-  return bookings;
+  if (!hasRole(user, "Personal Assistant")) return [];
+  const assigned = new Set(user.assignedOfficerIds);
+  return bookings.filter((booking) => {
+    if (!assigned.has(booking.officerId)) return false;
+    const officer = officers.find((item) => item.id === booking.officerId);
+    return officer?.isVip === false;
+  });
 }
 
-/**
- * Can the user act (approve/edit/etc) on this specific booking?
- * Protocol Officer only edits VIP-officer bookings; PA only their assigned.
- */
+export type BookingAction = "approve" | "reject" | "reschedule";
+
+const ACTION_PERMISSION: Record<BookingAction, FeatureKey> = {
+  approve: FEATURES.BOOKING_APPROVE,
+  reject: FEATURES.BOOKING_REJECT,
+  reschedule: FEATURES.BOOKING_RESCHEDULE,
+};
+
 export function canActOnBooking(
   user: SessionUser | null,
   booking: Booking,
   officers: Officer[],
+  action: BookingAction,
 ): boolean {
   if (!user) return false;
-  if (!hasPermission(user, FEATURES.BOOKING_UPDATE)) return false;
+  if (!hasPermission(user, FEATURES.BOOKING_VIEW)) return false;
+  if (!hasPermission(user, ACTION_PERMISSION[action])) return false;
+  if (action === "approve" || action === "reject") {
+    if (booking.status !== "pending") return false;
+  } else if (booking.status !== "accepted") {
+    return false;
+  }
 
-  const roleNames = user.roles.map((r) => r.name);
-  if (roleNames.includes("Personal Assistant")) {
-    return user.assignedOfficerIds.includes(booking.officerId);
-  }
-  if (roleNames.includes("Protocol Officer")) {
-    const officer = officers.find((o) => o.id === booking.officerId);
-    return Boolean(officer?.isVip);
-  }
-  return true;
+  const officer = officers.find((item) => item.id === booking.officerId);
+  if (!officer) return false;
+  if (hasRole(user, "Super Admin")) return true;
+  if (hasRole(user, "Protocol Officer") && officer.isVip) return true;
+  return hasRole(user, "Personal Assistant") &&
+    !officer.isVip &&
+    user.assignedOfficerIds.includes(booking.officerId);
 }

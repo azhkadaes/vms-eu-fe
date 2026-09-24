@@ -1,11 +1,12 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Plus, Search, Trash2, XCircle, CalendarClock, Sparkles } from "lucide-react";
+import { CheckCircle2, Plus, Search, XCircle, CalendarClock, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/data/PageHeader";
 import { DataTable, type Column } from "@/components/data/DataTable";
 import { StatusBadge } from "@/components/data/StatusBadge";
 import { EmptyState } from "@/components/data/EmptyState";
+import { DataLoadState } from "@/components/data/DataLoadState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,6 +43,7 @@ import {
   scopeBookings,
 } from "@/domain/permissions";
 import type { Booking, BookingStatus, VisitorCategory } from "@/domain/types";
+import { formatWitaTimestamp, witaDate } from "@/domain/wita";
 
 export const Route = createFileRoute("/_app/booking")({
   head: () => ({
@@ -55,8 +57,10 @@ export const Route = createFileRoute("/_app/booking")({
 
 function BookingPage() {
   const { user } = useSession();
-  const { data: allBookings = [] } = useBookings();
-  const { data: officers = [] } = useOfficers();
+  const bookingsQuery = useBookings();
+  const officersQuery = useOfficers();
+  const allBookings = useMemo(() => bookingsQuery.data ?? [], [bookingsQuery.data]);
+  const officers = useMemo(() => officersQuery.data ?? [], [officersQuery.data]);
   const mut = useBookingMutations();
 
   const [search, setSearch] = useState("");
@@ -101,6 +105,23 @@ function BookingPage() {
     { key: "status", header: "Status", cell: (b) => <StatusBadge status={b.status} /> },
   ];
 
+  if (bookingsQuery.isPending || officersQuery.isPending) return <DataLoadState subject="bookings" />;
+  if (bookingsQuery.isError || officersQuery.isError) {
+    return <DataLoadState subject="bookings" error onRetry={() => { void bookingsQuery.refetch(); void officersQuery.refetch(); }} />;
+  }
+
+  const runAction = async (action: () => Promise<unknown>, success: string) => {
+    try {
+      await action();
+      toast.success(success);
+      setOpenBooking(null);
+    } catch (error) {
+      toast.error("Booking could not be updated", {
+        description: error instanceof Error ? error.message : "Refresh the booking and try again.",
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -108,8 +129,8 @@ function BookingPage() {
         description="Manage visitor bookings — approve, reject, or reschedule."
         actions={
           hasPermission(user, FEATURES.BOOKING_CREATE) ? (
-            <Button onClick={() => setCreating(true)} className="gap-2">
-              <Plus className="h-4 w-4" /> New Booking
+            <Button disabled title="Staff booking creation requires representative details and identification upload." className="gap-2">
+              <Plus className="h-4 w-4" /> New Booking unavailable
             </Button>
           ) : null
         }
@@ -159,30 +180,16 @@ function BookingPage() {
         booking={openBooking}
         officers={officers}
         onClose={() => setOpenBooking(null)}
-        canAct={openBooking ? canActOnBooking(user, openBooking, officers) : false}
+        canApprove={openBooking ? canActOnBooking(user, openBooking, officers, "approve") : false}
+        canReject={openBooking ? canActOnBooking(user, openBooking, officers, "reject") : false}
+        canReschedule={openBooking ? canActOnBooking(user, openBooking, officers, "reschedule") : false}
         onApprove={async () => {
           if (!openBooking) return;
-          await mut.approve.mutateAsync(openBooking.id);
-          toast.success("Booking approved");
-          setOpenBooking(null);
+          await runAction(() => mut.approve.mutateAsync(openBooking.id), "Booking approved in the staff preview");
         }}
         onReject={async () => {
           if (!openBooking) return;
-          await mut.reject.mutateAsync(openBooking.id);
-          toast.success("Booking rejected");
-          setOpenBooking(null);
-        }}
-        onReschedule={async () => {
-          if (!openBooking) return;
-          await mut.reschedule.mutateAsync(openBooking.id);
-          toast.success("Booking marked for reschedule");
-          setOpenBooking(null);
-        }}
-        onDelete={async () => {
-          if (!openBooking) return;
-          await mut.remove.mutateAsync(openBooking.id);
-          toast.success("Booking deleted");
-          setOpenBooking(null);
+          await runAction(() => mut.reject.mutateAsync(openBooking.id), "Booking rejected in the staff preview");
         }}
       />
 
@@ -202,20 +209,20 @@ function BookingDetailSheet({
   booking,
   officers,
   onClose,
-  canAct,
+  canApprove,
+  canReject,
+  canReschedule,
   onApprove,
   onReject,
-  onReschedule,
-  onDelete,
 }: {
   booking: Booking | null;
   officers: ReturnType<typeof useOfficers>["data"];
   onClose: () => void;
-  canAct: boolean;
+  canApprove: boolean;
+  canReject: boolean;
+  canReschedule: boolean;
   onApprove: () => void;
   onReject: () => void;
-  onReschedule: () => void;
-  onDelete: () => void;
 }) {
   const officer = officers?.find((o) => o.id === booking?.officerId);
   return (
@@ -235,21 +242,18 @@ function BookingDetailSheet({
               <Detail label="Agenda" value={booking.agenda} />
               <Detail label="Category" value={<StatusBadge status={booking.category} />} />
               <Detail label="Status" value={<StatusBadge status={booking.status} />} />
-              {booking.checkedInAt && <Detail label="Checked in" value={new Date(booking.checkedInAt).toLocaleString()} />}
-              {booking.checkedOutAt && <Detail label="Checked out" value={new Date(booking.checkedOutAt).toLocaleString()} />}
+              {booking.checkedInAt && <Detail label="Checked in (WITA)" value={formatWitaTimestamp(booking.checkedInAt)} />}
+              {booking.checkedOutAt && <Detail label="Checked out (WITA)" value={formatWitaTimestamp(booking.checkedOutAt)} />}
             </div>
-            {canAct && (
+            {(canApprove || canReject || canReschedule) && (
               <div className="mt-6 space-y-2 border-t border-border px-4 pt-4 sm:px-6">
                 <div className="grid grid-cols-2 gap-2">
-                  <Button onClick={onApprove} className="gap-2"><CheckCircle2 className="h-4 w-4" /> Approve</Button>
-                  <Button onClick={onReject} variant="destructive" className="gap-2"><XCircle className="h-4 w-4" /> Reject</Button>
+                  {canApprove && <Button onClick={onApprove} className="gap-2"><CheckCircle2 className="h-4 w-4" /> Approve</Button>}
+                  {canReject && <Button onClick={onReject} variant="destructive" className="gap-2"><XCircle className="h-4 w-4" /> Reject</Button>}
                 </div>
-                <Button onClick={onReschedule} variant="outline" className="w-full gap-2">
-                  <CalendarClock className="h-4 w-4" /> Reschedule
-                </Button>
-                <Button onClick={onDelete} variant="ghost" className="w-full gap-2 text-destructive hover:text-destructive">
-                  <Trash2 className="h-4 w-4" /> Delete booking
-                </Button>
+                {canReschedule && <Button disabled title="Rescheduling requires a new date, availability check, and backend support." variant="outline" className="w-full gap-2">
+                  <CalendarClock className="h-4 w-4" /> Reschedule unavailable
+                </Button>}
               </div>
             )}
           </>
@@ -291,7 +295,7 @@ function BookingCreateDialog({
     officerId: "",
     visitorName: "",
     visitorOrg: "",
-    date: new Date().toISOString().slice(0, 10),
+    date: witaDate(),
     time: "10:00",
     location: "",
     agenda: "",

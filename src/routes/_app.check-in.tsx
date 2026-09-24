@@ -1,18 +1,21 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { MapPin, KeyRound, QrCode, LogIn } from "lucide-react";
+import { MapPin, KeyRound, LogIn } from "lucide-react";
 import { PageHeader } from "@/components/data/PageHeader";
 import { DataTable, type Column } from "@/components/data/DataTable";
 import { StatusBadge } from "@/components/data/StatusBadge";
 import { EmptyState } from "@/components/data/EmptyState";
 import { ActionTile } from "@/components/data/ActionTile";
 import { Button } from "@/components/ui/button";
-import { CodeInputDialog, QrScanDialog } from "@/components/dialogs/CheckInDialogs";
+import { CodeInputDialog } from "@/components/dialogs/CheckInDialogs";
+import { DataLoadState } from "@/components/data/DataLoadState";
 import { useBookings, useBookingMutations } from "@/app/queries";
 import { useSession } from "@/app/SessionContext";
 import { FEATURES, hasPermission } from "@/domain/permissions";
 import type { Booking } from "@/domain/types";
+import { canMockCheckIn } from "@/domain/bookingLifecycle";
+import { useWitaToday } from "@/app/useWitaToday";
 
 export const Route = createFileRoute("/_app/check-in")({
   head: () => ({
@@ -26,31 +29,34 @@ export const Route = createFileRoute("/_app/check-in")({
 
 function CheckInPage() {
   const { user } = useSession();
-  const { data: bookings = [] } = useBookings();
+  const bookingsQuery = useBookings();
+  const bookings = useMemo(() => bookingsQuery.data ?? [], [bookingsQuery.data]);
   const mut = useBookingMutations();
   const [openCode, setOpenCode] = useState(false);
-  const [openQr, setOpenQr] = useState(false);
 
   if (!hasPermission(user, FEATURES.CHECKIN_PERFORM)) {
     throw redirect({ to: "/unauthorized" });
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = useWitaToday();
   const eligible = useMemo(
-    () => bookings.filter((b) => b.date === today && (b.status === "accepted" || b.status === "pending")),
+    () => bookings.filter((booking) => canMockCheckIn(booking, today)),
     [bookings, today],
   );
-  const availableCodes = eligible.map((b) => b.bookingCode);
 
   const doCheckIn = async (code: string) => {
     const booking = bookings.find((b) => b.bookingCode.toLowerCase() === code.toLowerCase());
     if (!booking) return { ok: false, message: "Booking code not found." };
-    if (booking.date !== today) return { ok: false, message: "This booking isn't scheduled for today." };
-    if (booking.status === "checked_in") return { ok: false, message: "Visitor is already checked in." };
-    if (booking.status === "rejected" || booking.status === "cancelled") return { ok: false, message: `Booking is ${booking.status}.` };
-    await mut.checkIn.mutateAsync({ id: booking.id, by: user?.employee.name ?? "receptionist" });
-    toast.success(`Checked in: ${booking.visitorName}`);
-    return { ok: true, message: "Success" };
+    if (!canMockCheckIn(booking, today)) {
+      return { ok: false, message: booking.status !== "accepted" ? "This booking is not approved for arrival." : "This booking isn't scheduled for today (WITA)." };
+    }
+    try {
+      await mut.checkIn.mutateAsync({ id: booking.id, by: user?.employee.name ?? "receptionist" });
+      toast.success(`Checked in: ${booking.visitorName}`);
+      return { ok: true, message: "Success" };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : "Check-in failed. Please try again." };
+    }
   };
 
   const columns: Column<Booking>[] = [
@@ -66,18 +72,21 @@ function CheckInPage() {
           e.stopPropagation();
           await doCheckIn(b.bookingCode);
         }}
-        disabled={b.status === "checked_in" || b.status === "checked_out"}
+        disabled={mut.checkIn.isPending}
       >
         Check In
       </Button>
     ) },
   ];
 
+  if (bookingsQuery.isPending) return <DataLoadState subject="today's arrivals" />;
+  if (bookingsQuery.isError) return <DataLoadState subject="today's arrivals" error onRetry={() => void bookingsQuery.refetch()} />;
+
   return (
     <div className="space-y-6">
       <PageHeader title="Check In" description="Check visitors in on arrival." />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <ActionTile
           title="On Site"
           description="Pick from today's list and confirm arrival."
@@ -89,12 +98,6 @@ function CheckInPage() {
           description="Type the visitor's booking code manually."
           icon={<KeyRound className="h-5 w-5" />}
           onClick={() => setOpenCode(true)}
-        />
-        <ActionTile
-          title="Scan QR"
-          description="Scan the QR code from the visitor's confirmation."
-          icon={<QrCode className="h-5 w-5" />}
-          onClick={() => setOpenQr(true)}
         />
       </div>
 
@@ -120,13 +123,6 @@ function CheckInPage() {
         title="Check In by Code"
         description="Enter the visitor's booking code to check them in."
         onSubmit={doCheckIn}
-      />
-      <QrScanDialog
-        open={openQr}
-        onOpenChange={setOpenQr}
-        title="Scan QR to Check In"
-        onSubmit={doCheckIn}
-        simulatedCodes={availableCodes}
       />
     </div>
   );

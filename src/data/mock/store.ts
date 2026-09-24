@@ -1,5 +1,6 @@
 // In-memory store + seed data. Persisted to localStorage on the client.
 import { FEATURES } from "@/domain/permissions";
+import { addCalendarDays, witaDate } from "@/domain/wita";
 import type {
   AuditLog,
   Booking,
@@ -27,13 +28,7 @@ export interface DB {
   currentEmployeeId: string;
 }
 
-const today = new Date();
-const iso = (d: Date) => d.toISOString().slice(0, 10);
-const addDays = (d: Date, n: number) => {
-  const c = new Date(d);
-  c.setDate(c.getDate() + n);
-  return c;
-};
+const today = witaDate();
 
 const permissions: Permission[] = Object.entries(FEATURES).map(([k, v]) => ({
   id: `p_${v}`,
@@ -195,13 +190,13 @@ const bookingSeed: Array<Partial<Booking> & Pick<Booking, "visitorName" | "offic
 ];
 
 const bookings: Booking[] = bookingSeed.map((b, i) => {
-  const day = i % 3 === 0 ? today : i % 3 === 1 ? addDays(today, 1) : addDays(today, -1);
+  const day = i % 3 === 0 ? today : i % 3 === 1 ? addCalendarDays(today, 1) : addCalendarDays(today, -1);
   return {
     id: `bk_${i + 1}`,
     officerId: b.officerId,
     visitorName: b.visitorName,
     visitorOrg: b.visitorOrg ?? "",
-    date: iso(day),
+    date: day,
     time: b.time,
     location: b.location,
     agenda: b.agenda,
@@ -215,13 +210,13 @@ const bookings: Booking[] = bookingSeed.map((b, i) => {
 // Add more bookings across earlier months for analytics
 for (let m = 0; m < 6; m++) {
   for (let n = 0; n < 4; n++) {
-    const d = new Date(today.getFullYear(), today.getMonth() - m, 5 + n * 5);
+    const d = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1 - m, 5 + n * 5));
     bookings.push({
       id: `bk_hist_${m}_${n}`,
       officerId: n % 2 === 0 ? "off_1" : "off_2",
       visitorName: `Historical Visitor ${m}-${n}`,
       visitorOrg: "Org",
-      date: iso(d),
+      date: d.toISOString().slice(0, 10),
       time: "10:00",
       location: "Ruang Rapat",
       agenda: "Historical meeting",

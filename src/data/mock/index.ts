@@ -10,6 +10,8 @@ import type {
   SessionRepository,
 } from "@/data/types";
 import { FEATURES } from "@/domain/permissions";
+import { canMockChangeStatus, canMockCheckIn, canMockCheckOut } from "@/domain/bookingLifecycle";
+import { witaDate } from "@/domain/wita";
 import type { Permission, Role, SessionUser } from "@/domain/types";
 import { nextId, store, tick } from "./store";
 
@@ -53,29 +55,37 @@ export const bookingRepo: BookingRepository = {
   async setStatus(id, status) {
     store.update((db) => {
       const b = db.bookings.find((x) => x.id === id);
-      if (b) b.status = status;
+      if (!b) throw new Error("Booking not found. Refresh the list and try again.");
+      if (!canMockChangeStatus(b.status, status)) {
+        throw new Error("This booking has changed status. Refresh the list before continuing.");
+      }
+      b.status = status;
     });
     return tick(store.get().bookings.find((b) => b.id === id)!);
   },
   async checkIn(id, by) {
     store.update((db) => {
       const b = db.bookings.find((x) => x.id === id);
-      if (b) {
-        b.status = "checked_in";
-        b.checkedInAt = new Date().toISOString();
-        b.checkedInBy = by;
+      if (!b) throw new Error("Booking not found. Refresh the list and try again.");
+      if (!canMockCheckIn(b, witaDate())) {
+        throw new Error("Only an approved booking scheduled for today can be checked in.");
       }
+      b.status = "checked_in";
+      b.checkedInAt = new Date().toISOString();
+      b.checkedInBy = by;
     });
     return tick(store.get().bookings.find((b) => b.id === id)!);
   },
   async checkOut(id, by) {
     store.update((db) => {
       const b = db.bookings.find((x) => x.id === id);
-      if (b) {
-        b.status = "checked_out";
-        b.checkedOutAt = new Date().toISOString();
-        b.checkedOutBy = by;
+      if (!b) throw new Error("Booking not found. Refresh the list and try again.");
+      if (!canMockCheckOut(b)) {
+        throw new Error("Only a checked-in booking can be checked out.");
       }
+      b.status = "checked_out";
+      b.checkedOutAt = new Date().toISOString();
+      b.checkedOutBy = by;
     });
     return tick(store.get().bookings.find((b) => b.id === id)!);
   },
@@ -167,12 +177,18 @@ export const integrationRepo: IntegrationRepository = {
   },
 };
 
+function csvCell(value: unknown): string {
+  const raw = String(value);
+  const safe = /^(?:\s|\uFEFF)*[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replaceAll('"', '""')}"`;
+}
+
 function bookingsToCsv(): string {
   const rows = store.get().bookings;
   const header = "id,booking_code,date,time,visitor,location,agenda,status,category";
   const lines = rows.map((b) =>
     [b.id, b.bookingCode, b.date, b.time, b.visitorName, b.location, b.agenda, b.status, b.category]
-      .map((v) => `"${String(v).replaceAll('"', '""')}"`)
+      .map(csvCell)
       .join(","),
   );
   return [header, ...lines].join("\n");
@@ -182,18 +198,18 @@ export const logRepo: LogRepository = {
   async list() {
     return tick([...store.get().logs]);
   },
-  async exportCsv(email) {
+  async exportCsv() {
     const logs = store.get().logs;
     const header = "id,actor,kind,date,description,ip";
     const lines = logs.map((l) =>
       [l.id, l.actorName, l.kind, l.date, l.description, l.ipAddress]
-        .map((v) => `"${String(v).replaceAll('"', '""')}"`)
+        .map(csvCell)
         .join(","),
     );
-    return tick({ csv: [header, ...lines].join("\n"), sentTo: email });
+    return tick({ csv: [header, ...lines].join("\n") });
   },
-  async downloadReport(email) {
-    return tick({ csv: bookingsToCsv(), sentTo: email });
+  async downloadReport() {
+    return tick({ csv: bookingsToCsv() });
   },
 };
 
@@ -278,6 +294,9 @@ export const sessionRepo: SessionRepository = {
     return tick(users);
   },
   async switchTo(employeeId) {
+    if (!store.get().employees.some((employee) => employee.id === employeeId)) {
+      throw new Error("Staff account is no longer available. Refresh the preview.");
+    }
     store.update((db) => {
       db.currentEmployeeId = employeeId;
     });

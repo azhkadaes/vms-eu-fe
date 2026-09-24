@@ -1,5 +1,5 @@
-// Domain types mirror the ERD. These are the shapes the future Go API
-// should return 1:1.
+// Current staff preview models. They are not the accepted backend contract;
+// map API responses explicitly when the shared contract is implemented.
 
 export type ID = string;
 

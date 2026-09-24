@@ -24,10 +24,13 @@ import { StatCard } from "@/components/data/StatCard";
 import { StatusBadge } from "@/components/data/StatusBadge";
 import { DataTable, type Column } from "@/components/data/DataTable";
 import { EmptyState } from "@/components/data/EmptyState";
-import { useAnalyticsTrend, useBookings, useOfficers } from "@/app/queries";
+import { DataLoadState } from "@/components/data/DataLoadState";
+import { useBookings, useOfficers } from "@/app/queries";
 import { useSession } from "@/app/SessionContext";
 import { FEATURES, hasPermission, scopeBookings } from "@/domain/permissions";
 import type { Booking } from "@/domain/types";
+import { addCalendarDays } from "@/domain/wita";
+import { useWitaToday } from "@/app/useWitaToday";
 
 export const Route = createFileRoute("/_app/dashboard")({
   head: () => ({
@@ -43,34 +46,34 @@ export const Route = createFileRoute("/_app/dashboard")({
   component: DashboardPage,
 });
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-function tomorrowIso() {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
 function DashboardPage() {
   const { user } = useSession();
-  const { data: allBookings = [] } = useBookings();
-  const { data: officers = [] } = useOfficers();
-  const year = new Date().getFullYear();
-  const { data: trend = [] } = useAnalyticsTrend(year);
+  const bookingsQuery = useBookings();
+  const officersQuery = useOfficers();
+  const allBookings = useMemo(() => bookingsQuery.data ?? [], [bookingsQuery.data]);
+  const officers = useMemo(() => officersQuery.data ?? [], [officersQuery.data]);
+  const today = useWitaToday();
+  const year = Number(today.slice(0, 4));
 
   if (!hasPermission(user, FEATURES.DASHBOARD_VIEW)) {
     throw redirect({ to: "/unauthorized" });
   }
 
   const bookings = useMemo(() => scopeBookings(user, allBookings, officers), [user, allBookings, officers]);
+  const trend = useMemo(() => {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return months.map((month, index) => {
+      const monthBookings = bookings.filter((booking) => booking.date.startsWith(`${year}-${String(index + 1).padStart(2, "0")}`));
+      const vip = monthBookings.filter((booking) => officers.find((officer) => officer.id === booking.officerId)?.isVip).length;
+      return { month, vip, regular: monthBookings.length - vip };
+    });
+  }, [bookings, officers, year]);
 
   const accepted = bookings.filter((b) => b.status === "accepted").length;
   const pending = bookings.filter((b) => b.status === "pending" || b.status === "reschedule").length;
   const rejected = bookings.filter((b) => b.status === "rejected").length;
 
-  const today = todayIso();
-  const tomorrow = tomorrowIso();
+  const tomorrow = addCalendarDays(today, 1);
   const todayList = bookings.filter((b) => b.date === today);
   const tomorrowList = bookings.filter((b) => b.date === tomorrow);
   const checkedInToday = bookings.filter((b) => b.status === "checked_in" && b.date === today).length;
@@ -82,6 +85,11 @@ function DashboardPage() {
     { key: "location", header: "Lokasi", cell: (b) => b.location },
     { key: "status", header: "Status", cell: (b) => <StatusBadge status={b.status} /> },
   ];
+
+  if (bookingsQuery.isPending || officersQuery.isPending) return <DataLoadState subject="dashboard data" />;
+  if (bookingsQuery.isError || officersQuery.isError) {
+    return <DataLoadState subject="dashboard data" error onRetry={() => { void bookingsQuery.refetch(); void officersQuery.refetch(); }} />;
+  }
 
   return (
     <div className="space-y-6">

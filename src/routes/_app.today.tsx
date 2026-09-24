@@ -1,16 +1,18 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays } from "lucide-react";
 import { PageHeader } from "@/components/data/PageHeader";
 import { DataTable, type Column } from "@/components/data/DataTable";
 import { StatusBadge } from "@/components/data/StatusBadge";
 import { EmptyState } from "@/components/data/EmptyState";
+import { DataLoadState } from "@/components/data/DataLoadState";
 import { useBookings, useOfficers } from "@/app/queries";
 import { useSession } from "@/app/SessionContext";
 import { FEATURES, hasPermission, scopeBookings } from "@/domain/permissions";
 import type { Booking } from "@/domain/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useWitaToday } from "@/app/useWitaToday";
 
 export const Route = createFileRoute("/_app/today")({
   head: () => ({
@@ -24,10 +26,19 @@ export const Route = createFileRoute("/_app/today")({
 
 function TodayPage() {
   const { user } = useSession();
-  const { data: allBookings = [] } = useBookings();
-  const { data: officers = [] } = useOfficers();
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const bookingsQuery = useBookings();
+  const officersQuery = useOfficers();
+  const allBookings = useMemo(() => bookingsQuery.data ?? [], [bookingsQuery.data]);
+  const officers = useMemo(() => officersQuery.data ?? [], [officersQuery.data]);
+  const today = useWitaToday();
+  const [date, setDate] = useState(today);
+  const previousToday = useRef(today);
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setDate((selected) => selected === previousToday.current ? today : selected);
+    previousToday.current = today;
+  }, [today]);
 
   if (!hasPermission(user, FEATURES.TODAY_VIEW)) {
     throw redirect({ to: "/unauthorized" });
@@ -50,6 +61,11 @@ function TodayPage() {
     { key: "agenda", header: "Agenda", cell: (b) => <span className="line-clamp-2">{b.agenda}</span> },
     { key: "status", header: "Status", cell: (b) => <StatusBadge status={b.status} /> },
   ];
+
+  if (bookingsQuery.isPending || officersQuery.isPending) return <DataLoadState subject="visits" />;
+  if (bookingsQuery.isError || officersQuery.isError) {
+    return <DataLoadState subject="visits" error onRetry={() => { void bookingsQuery.refetch(); void officersQuery.refetch(); }} />;
+  }
 
   return (
     <div className="space-y-6">

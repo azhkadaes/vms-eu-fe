@@ -59,10 +59,10 @@ export function useIntegrations() {
   return useQuery({ queryKey: ["integrations", tick], queryFn: () => repos.integrations.list() });
 }
 
-export function useLogs() {
+export function useLogs(enabled = true) {
   const repos = useRepos();
   const tick = useStoreTick();
-  return useQuery({ queryKey: ["logs", tick], queryFn: () => repos.logs.list() });
+  return useQuery({ queryKey: ["logs", tick], queryFn: () => repos.logs.list(), enabled });
 }
 
 export function useAnalyticsTrend(year: number) {

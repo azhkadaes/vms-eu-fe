@@ -1,18 +1,20 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { MapPin, KeyRound, QrCode, LogOut } from "lucide-react";
+import { MapPin, KeyRound, LogOut } from "lucide-react";
 import { PageHeader } from "@/components/data/PageHeader";
 import { DataTable, type Column } from "@/components/data/DataTable";
 import { StatusBadge } from "@/components/data/StatusBadge";
 import { EmptyState } from "@/components/data/EmptyState";
 import { ActionTile } from "@/components/data/ActionTile";
 import { Button } from "@/components/ui/button";
-import { CodeInputDialog, QrScanDialog } from "@/components/dialogs/CheckInDialogs";
+import { CodeInputDialog } from "@/components/dialogs/CheckInDialogs";
+import { DataLoadState } from "@/components/data/DataLoadState";
 import { useBookings, useBookingMutations } from "@/app/queries";
 import { useSession } from "@/app/SessionContext";
 import { FEATURES, hasPermission } from "@/domain/permissions";
 import type { Booking } from "@/domain/types";
+import { canMockCheckOut } from "@/domain/bookingLifecycle";
 
 export const Route = createFileRoute("/_app/check-out")({
   head: () => ({
@@ -26,26 +28,28 @@ export const Route = createFileRoute("/_app/check-out")({
 
 function CheckOutPage() {
   const { user } = useSession();
-  const { data: bookings = [] } = useBookings();
+  const bookingsQuery = useBookings();
+  const bookings = useMemo(() => bookingsQuery.data ?? [], [bookingsQuery.data]);
   const mut = useBookingMutations();
   const [openCode, setOpenCode] = useState(false);
-  const [openQr, setOpenQr] = useState(false);
 
   if (!hasPermission(user, FEATURES.CHECKOUT_PERFORM)) {
     throw redirect({ to: "/unauthorized" });
   }
 
   const eligible = useMemo(() => bookings.filter((b) => b.status === "checked_in"), [bookings]);
-  const availableCodes = eligible.map((b) => b.bookingCode);
 
   const doCheckOut = async (code: string) => {
     const booking = bookings.find((b) => b.bookingCode.toLowerCase() === code.toLowerCase());
     if (!booking) return { ok: false, message: "Booking code not found." };
-    if (booking.status === "checked_out") return { ok: false, message: "Visitor is already checked out." };
-    if (booking.status !== "checked_in") return { ok: false, message: "Visitor hasn't been checked in yet." };
-    await mut.checkOut.mutateAsync({ id: booking.id, by: user?.employee.name ?? "receptionist" });
-    toast.success(`Checked out: ${booking.visitorName}`);
-    return { ok: true, message: "Success" };
+    if (!canMockCheckOut(booking)) return { ok: false, message: "Only a checked-in visitor can be checked out." };
+    try {
+      await mut.checkOut.mutateAsync({ id: booking.id, by: user?.employee.name ?? "receptionist" });
+      toast.success(`Checked out: ${booking.visitorName}`);
+      return { ok: true, message: "Success" };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : "Check-out failed. Please try again." };
+    }
   };
 
   const columns: Column<Booking>[] = [
@@ -68,11 +72,14 @@ function CheckOutPage() {
     ) },
   ];
 
+  if (bookingsQuery.isPending) return <DataLoadState subject="checked-in visits" />;
+  if (bookingsQuery.isError) return <DataLoadState subject="checked-in visits" error onRetry={() => void bookingsQuery.refetch()} />;
+
   return (
     <div className="space-y-6">
       <PageHeader title="Check Out" description="Check visitors out at the end of their visit." />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <ActionTile
           title="On Site"
           description="Pick from the currently-checked-in list."
@@ -84,12 +91,6 @@ function CheckOutPage() {
           description="Type the visitor's booking code to check them out."
           icon={<KeyRound className="h-5 w-5" />}
           onClick={() => setOpenCode(true)}
-        />
-        <ActionTile
-          title="Scan QR"
-          description="Scan the QR code from the visitor's badge."
-          icon={<QrCode className="h-5 w-5" />}
-          onClick={() => setOpenQr(true)}
         />
       </div>
 
@@ -115,13 +116,6 @@ function CheckOutPage() {
         title="Check Out by Code"
         description="Enter the visitor's booking code to check them out."
         onSubmit={doCheckOut}
-      />
-      <QrScanDialog
-        open={openQr}
-        onOpenChange={setOpenQr}
-        title="Scan QR to Check Out"
-        onSubmit={doCheckOut}
-        simulatedCodes={availableCodes}
       />
     </div>
   );

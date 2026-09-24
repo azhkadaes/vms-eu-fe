@@ -1,5 +1,7 @@
 import { get, post } from "./api";
+import { parseLegacyBookingCreated } from "./legacyBookingAdapter";
 
+// Existing backend DTO, kept separate from the proposed common contract.
 export interface ReqCreateBooking {
   pejabat: string;
   tanggal: string;
@@ -59,7 +61,7 @@ export type BookingLookupResult =
 export async function createBooking(
   payload: ReqCreateBooking,
 ): Promise<ResBookingCreated> {
-  return post<ResBookingCreated>("/bookings", payload);
+  return parseLegacyBookingCreated(await post<unknown>("/bookings", payload));
 }
 
 export async function fetchBookingByPin(

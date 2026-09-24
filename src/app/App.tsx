@@ -39,6 +39,7 @@ import {
   type ResBookingLookup,
 } from "../services/bookingService";
 import { ApiError } from "../services/api";
+import { VISIT_TIME_ZONE, witaDate } from "../services/wita";
 
 const imgBg = new URL(
   "../imports/IPhone13141/bb7b728a1a6e3f913073a407a73a558eb5867bcf.png",
@@ -204,7 +205,7 @@ const translations = {
       "PIN yang Anda masukkan tidak terdaftar dalam sistem. Pastikan PIN sudah benar atau hubungi kantor Otorita IKN.",
     back: "Kembali",
     step: "Step",
-    wib: "WIB",
+    wib: "WITA",
     required: "Harus diisi",
 
     // Additional translations for screens
@@ -358,7 +359,7 @@ const translations = {
       "The PIN you entered is not registered in the system. Make sure the PIN is correct or contact the IKN Authority office.",
     back: "Back",
     step: "Step",
-    wib: "WIB",
+    wib: "WITA",
     required: "Required",
 
     // Additional translations for screens
@@ -495,7 +496,9 @@ const TIME_SLOTS = [
 function formatDate(iso: string) {
   if (!iso) return "-";
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
   return d.toLocaleDateString("id-ID", {
+    timeZone: VISIT_TIME_ZONE,
     weekday: "long",
     year: "numeric",
     month: "long",
@@ -711,9 +714,11 @@ const STATUS_CONFIG: Record<
 function PinInput({
   value,
   onChange,
+  disabled = false,
 }: {
   value: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   const refs = Array.from({ length: 6 }, () => useRef<HTMLInputElement>(null));
 
@@ -750,6 +755,8 @@ function PinInput({
           type="text"
           inputMode="numeric"
           maxLength={1}
+          disabled={disabled}
+          aria-label={`Booking code digit ${i + 1}`}
           value={value[i] || ""}
           onChange={(e) => handleChange(i, e)}
           onKeyDown={(e) => handleKey(i, e)}
@@ -824,9 +831,6 @@ function CekPinScreen({
           setSearchError(null);
           return;
         }
-        if (err.statusCode === 400) {
-          notFound = true;
-        }
       } else if (err instanceof Error) {
         message = err.message || message;
       }
@@ -898,7 +902,18 @@ function CekPinScreen({
             <p className="text-white/60 text-xs md:text-sm text-center mb-4 font-medium uppercase tracking-widest">
               {t("pinLabel")}
             </p>
-            <PinInput value={pin} onChange={setPin} />
+            <PinInput disabled value={pin} onChange={(value) => {
+              setPin(value);
+              setResult(null);
+              setSearched(false);
+              setSearchError(null);
+            }} />
+
+            <p role="status" className="mb-4 text-sm text-amber-100">
+              {language === "id"
+                ? "Pengecekan detail kunjungan sementara belum tersedia. Nantinya diperlukan kode booking dan verifikasi email."
+                : "Private appointment lookup is temporarily unavailable. It will require your booking code and email verification."}
+            </p>
 
             {searchError && (
               <div className="flex items-start gap-2 text-red-300/90 text-xs mb-4 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
@@ -909,7 +924,7 @@ function CekPinScreen({
 
             <button
               onClick={() => void handleSearch()}
-              disabled={pin.replace(/\D/g, "").length < 6 || isSearching}
+              disabled
               className="w-full mt-5 bg-[#2e7465] disabled:bg-[#2e7465]/35 text-white font-semibold text-sm md:text-base rounded-[8px] py-3 md:py-4 flex items-center justify-center gap-2 transition-all active:scale-[0.98] hover:enabled:bg-[#3f9e89] disabled:cursor-not-allowed"
             >
               {isSearching ? (
@@ -970,7 +985,7 @@ function CekPinScreen({
                         ["Pejabat", result.record.pejabat],
                         ["Ruangan", getRuanganDisplay(result.record)],
                         ["Tanggal", formatDate(result.record.tanggal)],
-                        ["Waktu", `${result.record.waktu} WIB`],
+                        ["Waktu", `${result.record.waktu} WITA`],
                         ["Keperluan", result.record.keperluan],
                         ["Berlaku Hingga", formatDate(result.record.expiresAt)],
                       ].map(([label, val]) => (
@@ -1229,7 +1244,7 @@ function Step1Screen({
                   type="date"
                   value={data.tanggal}
                   onChange={(e) => setData({ tanggal: e.target.value })}
-                  min={new Date().toISOString().split("T")[0]}
+                  min={witaDate()}
                   className="w-full bg-white/75 border border-[#2e7465] rounded-[8px] pl-8 pr-3 py-2.5 text-sm md:text-base text-[#1a3d34] outline-none focus:border-[#3f9e89] focus:ring-2 focus:ring-[#2e7465]/20 transition-all appearance-none"
                 />
               </div>
@@ -1603,7 +1618,7 @@ function ConfirmScreen({
             />
             <ConfirmRow
               label={t("timeLabel")}
-              value={waktuKunjungan === "-" ? "-" : `${waktuKunjungan} WIB`}
+              value={waktuKunjungan === "-" ? "-" : `${waktuKunjungan} WITA`}
             />
             <ConfirmRow label={t("purposeLabel")} value={keperluanDisplay} />
             {data.catatan && (
